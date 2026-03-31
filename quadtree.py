@@ -30,27 +30,26 @@ class QuadtreeNode:
 class Quadtree:
     """Manages the recursive splitting logic evaluating underlying spatial image variables."""
     
-    def __init__(self, normal_map, depth_map=None, min_size=8, dot_threshold=0.98, depth_error_threshold=10.0):
+    def __init__(self, normal_map=None, edge_map=None, min_size=8, dot_threshold=0.98):
         """
-        :param normal_map: float32 numpy array HxWx3, assumed to be normalized normals [-1, 1].
-        :param depth_map: float32 numpy array HxW, depth values. (Optional)
+        :param normal_map: float32 numpy array HxWx3, assumed to be normalized normals [-1, 1]. (Optional)
+        :param edge_map: uint8 numpy array HxW, structurally pre-calculated mask of geometric edges (Optional)
         :param min_size: minimum width/height for a quadrant before stopping to prevent infinite recursion.
         :param dot_threshold: ratio of normals perfectly matching the mean normal.
-        :param depth_error_threshold: threshold for Mean Squared Error of planar fit on depth values.
         """
         self.normal_map = normal_map
-        self.depth_map = depth_map
+        self.edge_map = edge_map
         self.min_size = min_size
         self.dot_threshold = dot_threshold
-        self.depth_error_threshold = depth_error_threshold
         
-        # Determine shape accurately regardless of depth_map presence
-        h, w = normal_map.shape[:2]
-        
-        # Precompute coordinate grids for plane fitting math to keep evaluation ultra-fast
-        if self.depth_map is not None:
-            self.X, self.Y = np.meshgrid(np.arange(w), np.arange(h))
-        
+        # Determine shape accurately regardless of whether we drop normal maps or edge maps entirely
+        if normal_map is not None:
+            h, w = normal_map.shape[:2]
+        elif edge_map is not None:
+            h, w = edge_map.shape[:2]
+        else:
+            raise ValueError("Quadtree requires at least one data matrix cleanly passed.")
+            
         # Root encompasses the entire matrix
         self.root = QuadtreeNode(0, 0, w, h)
         self._build(self.root)
@@ -69,56 +68,33 @@ class Quadtree:
         x, y, w, h = node.x, node.y, node.width, node.height
         
         # --- 1. Normal Variance Check (Dot Product metric) ---
-        patch_normals = self.normal_map[y:y+h, x:x+w]
-        
-        if patch_normals.size == 0:
-            return False
+        if self.normal_map is not None:
+            patch_normals = self.normal_map[y:y+h, x:x+w]
             
-        # Calculate the pure average normal
-        mean_normal = np.mean(patch_normals, axis=(0, 1))
-        norm_len = np.linalg.norm(mean_normal)
-        
-        if norm_len > 0:
-            mean_normal /= norm_len
-            
-        # Dot product array: element wise multiply and sum over 3rd axis
-        dots = np.sum(patch_normals * mean_normal, axis=2)
-        mean_dot = np.mean(dots)
-        
-        if mean_dot < self.dot_threshold:
-            return True # Values represent too sharp an angle from the average! Split.
-            
-        # --- 2. Depth Planar Fitting Check (Least Squares) ---
-        # PCA fails on huge depth jumps because it treats all 3 axes the same.
-        # A massive cliff causes PCA to just rotate its primary axis straight down Z, 
-        # making the "thickness" appear small. 
-        # We must explicitly regress Z against X and Y using standard plane fitting!
-        if self.depth_map is not None:
-            patch_depth = self.depth_map[y:y+h, x:x+w]
-            patch_x = self.X[y:y+h, x:x+w].flatten()
-            patch_y = self.Y[y:y+h, x:x+w].flatten()
-            patch_z = patch_depth.flatten()
-            
-            # Construct least-squares matrix: Z = aX + bY + c
-            A = np.c_[patch_x, patch_y, np.ones(patch_x.shape[0])]
-            
-            try:
-                # Solve for plane coefficients [a, b, c]
-                coeffs, residuals, rank, s = np.linalg.lstsq(A, patch_z, rcond=None)
+            if patch_normals.size > 0:
+                # Calculate the pure average normal
+                mean_normal = np.mean(patch_normals, axis=(0, 1))
+                norm_len = np.linalg.norm(mean_normal)
                 
-                # If there are residuals, we calculate the Mean Squared Error against the flat plane
-                if len(residuals) > 0:
-                    mse = residuals[0] / len(patch_z)
-                else:
-                    mse = 0.0
+                if norm_len > 0:
+                    mean_normal /= norm_len
                     
-                if mse > self.depth_error_threshold:
-                    return True # Geometry contains a cliff or curve too severe to approximate
-                    
-            except np.linalg.LinAlgError:
-                return True # Math structure corrupted out of weird complexity, branch.
+                # Dot product array: element wise multiply and sum over 3rd axis
+                dots = np.sum(patch_normals * mean_normal, axis=2)
+                if np.mean(dots) < self.dot_threshold:
+                    return True # Values represent too sharp an angle from the average! Split.
             
-        # Both variance and optional plane approximation are perfectly acceptable! Save the node intact.
+        # --- 2. Structural Edge Map Check ---
+        # Instead of heavy Least Squares matrices, we execute an O(1) instantaneous lookup
+        # across the globally computed edge pixels.
+        if self.edge_map is not None:
+            patch_edges = self.edge_map[y:y+h, x:x+w]
+            
+            # If the patch contains any strict physical cliff boundary (a white edge pixel), drop the node!
+            if np.any(patch_edges > 0):
+                return True 
+            
+        # Both variance and optional edge approximation are perfectly acceptable! Save the node intact.
         return False
         
     def draw(self, image, color=(0, 255, 0), thickness=1):
@@ -146,12 +122,21 @@ def test_quadtree_workflow():
     normal_path = "data/visual_normal.png"
     depth_path = "data/visual_depth.png"
     
-    if not os.path.exists(normal_path) or not os.path.exists(depth_path):
-        print(f"Skipping Quadtree Test visualization, missing required ground truth data logs.")
+    # Determine the strict RGB user image
+    color_path = "data/img.jpg"
+    if not os.path.exists(color_path):
+        # Fallback to standard generated GT files if named differently
+        color_path = "data/frame.0000.color.jpg"
+    
+    if not os.path.exists(normal_path) or not os.path.exists(depth_path) or not os.path.exists(color_path):
+        print(f"Skipping Quadtree Test visualization, missing required ground truth data logs inside your data folder.")
         return
         
-    print("Executing Quadtree pipeline over generated Ground Truth Visual Maps...")
+    print("Executing Quadtree pipeline testing specific spatial matrix splits mapped geometrically over your physical RGB Image...")
     
+    # Load strictly formatted mapping target
+    color_img_bgr = cv2.imread(color_path, cv2.IMREAD_COLOR)
+
     # 1. Load the Normal Map vectors mathematically
     normal_bgr = cv2.imread(normal_path, cv2.IMREAD_COLOR)
     rgb = cv2.cvtColor(normal_bgr, cv2.COLOR_BGR2RGB)
@@ -159,51 +144,61 @@ def test_quadtree_workflow():
     # Standard geometric translation formula: N = (RGB_Values / 255.0) * 2.0 - 1.0
     normals_raw_vectors = (rgb.astype(np.float32) / 255.0) * 2.0 - 1.0
     
-    # 2. Load the Depth Map natively without capping formats
+    # 2. Process Depth specifically targeting algorithmic Edges
     depth_raw = cv2.imread(depth_path, cv2.IMREAD_UNCHANGED)
     depth_float = depth_raw.astype(np.float32)
-    
-    # In PCA, variances of drastically different scales break the math matrices!
-    # (e.g., Matrix X/Y spans ~1000px, but depth spans [0.0 - 1.0] or [0 - 65535]).
-    # We cleanly normalize depth values specifically back to physical image coordinate boundaries.
-    img_max_dim = max(rgb.shape[0], rgb.shape[1])
-    depth_pca_mapped = (depth_float / (np.max(depth_float) + 1e-8)) * img_max_dim
 
-    # Produce a strict 8-bit visual rendering map to draw perfectly visible colored boxes on
     if len(depth_raw.shape) == 2:
         if depth_raw.dtype == np.uint8:
             depth_8u = depth_raw
         else:
-            # Safely cast down huge 16-bit variants back to an 8-bit visible surface
             depth_8u = (depth_float / (np.max(depth_float) + 1e-8) * 255.0).astype(np.uint8)
-        depth_vis_bgr = cv2.cvtColor(depth_8u, cv2.COLOR_GRAY2BGR)
     else:
         # Assuming it is already safely 3 channel
-        depth_vis_bgr = depth_raw.copy()
+        depth_8u = cv2.cvtColor(depth_raw, cv2.COLOR_BGR2GRAY)
+        
+    # --- Execute Pre-Calculated Canny Extractor on DEPTH ---
+    depth_edges_mask = cv2.Canny(depth_8u, threshold1=15, threshold2=50)
     
-    # --- 3. Run Logic WITHOUT depth (Normals Only) ---
-    print("Evaluating divergence boundaries WITHOUT depth logic...")
-    qt_no_depth = Quadtree(normals_raw_vectors, depth_map=None, min_size=4, dot_threshold=0.99)
-    # Using RED to indicate it had no underlying depth structural bounds
-    normal_img_nodepth_overlay = qt_no_depth.draw(normal_bgr, color=(0, 0, 255), thickness=1)
-    depth_img_nodepth_overlay  = qt_no_depth.draw(depth_vis_bgr, color=(0, 0, 255), thickness=1)
-
-    # --- 4. Run Logic WITH depth logic ---
-    print("Evaluating divergence boundaries WITH underlying mapped depth logic...")
-    # Add a reasonably strict standard plane threshold ratio since our depth map natively spans the image bounds
-    qt_with_depth = Quadtree(normals_raw_vectors, depth_map=depth_pca_mapped, min_size=4, dot_threshold=0.99, depth_error_threshold=1.0)
-    # GREEN successfully represents depth+variance approved splits
-    normal_img_withdepth_overlay = qt_with_depth.draw(normal_bgr, color=(0, 255, 0), thickness=1)
-    depth_img_withdepth_overlay  = qt_with_depth.draw(depth_vis_bgr, color=(0, 255, 0), thickness=1)
+    # --- Execute Pre-Calculated Canny Extractor on RGB COLOR ---
+    color_gray = cv2.cvtColor(color_img_bgr, cv2.COLOR_BGR2GRAY)
+    rgb_edges_mask = cv2.Canny(color_gray, threshold1=50, threshold2=150) # Tighter threshold bounds for noisy color images
     
-    # --- 5. Export Overlays ---
+    # Mathematical Stack of both structural edge detection variants
+    combined_edges_mask = cv2.bitwise_or(depth_edges_mask, rgb_edges_mask)
+    
+    # Provide the masks out so the user can visually trace the algorithmic inputs
     os.makedirs("output", exist_ok=True)
-    cv2.imwrite("output/quadtree_nodepth_normals_viz.png", normal_img_nodepth_overlay)
-    cv2.imwrite("output/quadtree_nodepth_depth_viz.png", depth_img_nodepth_overlay)
-    cv2.imwrite("output/quadtree_withdepth_normals_viz.png", normal_img_withdepth_overlay)
-    cv2.imwrite("output/quadtree_withdepth_depth_viz.png", depth_img_withdepth_overlay)
+    cv2.imwrite("output/algorithm_depth_edges_mask.png", depth_edges_mask)
+    cv2.imwrite("output/algorithm_rgb_edges_mask.png", rgb_edges_mask)
+    
+    # --- Option 1: Run Logic using NORMALS ONLY ---
+    print("Generating [Normals Only] boundaries...")
+    qt_normals = Quadtree(normal_map=normals_raw_vectors, edge_map=None, min_size=4, dot_threshold=0.99)
+    out_normals = qt_normals.draw(color_img_bgr, color=(0, 0, 255), thickness=1) # RED purely means Normals
+    
+    # --- Option 2: Run Logic using DEPTH EDGES ONLY ---
+    print("Generating [Depth Edges Only] boundaries...")
+    qt_depth_edges = Quadtree(normal_map=None, edge_map=depth_edges_mask, min_size=4)
+    out_depth_edges = qt_depth_edges.draw(color_img_bgr, color=(255, 0, 0), thickness=1) # BLUE purely means Depth Drop
+    
+    # --- Option 3: Run Logic using RGB COLOR EDGES ONLY ---
+    print("Generating [Color Edges Only] boundaries...")
+    qt_rgb_edges = Quadtree(normal_map=None, edge_map=rgb_edges_mask, min_size=4)
+    out_rgb_edges = qt_rgb_edges.draw(color_img_bgr, color=(0, 255, 255), thickness=1) # YELLOW purely means Texture Color Boundaries
+    
+    # --- Option 4: Run Logic COMBINED ---
+    print("Generating [All Metrics Combined] algorithm boundaries...")
+    qt_combined = Quadtree(normal_map=normals_raw_vectors, edge_map=combined_edges_mask, min_size=4, dot_threshold=0.99)
+    out_combined = qt_combined.draw(color_img_bgr, color=(0, 255, 0), thickness=1) # GREEN explicitly stacks all 3 metrics perfectly
+    
+    # --- 5. Export the specific test arrays entirely mapped back onto RGB space ---
+    cv2.imwrite("output/quadtree_rgb_normals_only.png", out_normals)
+    cv2.imwrite("output/quadtree_rgb_depth_edges_only.png", out_depth_edges)
+    cv2.imwrite("output/quadtree_rgb_color_edges_only.png", out_rgb_edges)
+    cv2.imwrite("output/quadtree_rgb_combined_all.png", out_combined)
 
-    print("Successfully explicitly executed all comparison Quadtree bounds to the 'output/' folder!")
+    print("Successfully mapped and saved your 4 comparative pipeline algorithms natively drawn over standard RGB images inside the 'output/' folder!")
 
 if __name__ == "__main__":
     test_quadtree_workflow()
