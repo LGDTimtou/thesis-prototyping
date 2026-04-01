@@ -133,47 +133,64 @@ if __name__ == "__main__":
             
         # --- Execute Pre-Calculated Canny Extractor on DEPTH ---
         depth_edges_mask = cv2.Canny(depth_8u, threshold1=15, threshold2=50)
-        
-        # --- Execute Pre-Calculated Canny Extractor on RGB COLOR ---
         color_gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
-        rgb_edges_mask = cv2.Canny(color_gray, threshold1=50, threshold2=150)
         
-        # Mathematical Stack of both structural edge detection variants
-        combined_edges_mask = cv2.bitwise_or(depth_edges_mask, rgb_edges_mask)
+        import json
         
-        os.makedirs("output", exist_ok=True)
+        # Configuration Lists to iterate
+        min_sizes_to_test = [2, 4, 8, 16, 32]
+        rgb_thresholds_to_test = [(30, 90), (50, 150), (100, 200)]
         
-        # Define 4 configuration tuples: (Name, Box Color, Quadtree args dict)
-        configs = [
-            ("normals_only", (0, 0, 255), {'normal_map': normals_raw_vectors, 'edge_map': None, 'min_size': 4, 'dot_threshold': 0.99}),
-            ("depth_edges_only", (255, 0, 0), {'normal_map': None, 'edge_map': depth_edges_mask, 'min_size': 4}),
-            ("color_edges_only", (0, 255, 255), {'normal_map': None, 'edge_map': rgb_edges_mask, 'min_size': 4}),
-            ("combined_all", (0, 255, 0), {'normal_map': normals_raw_vectors, 'edge_map': combined_edges_mask, 'min_size': 4, 'dot_threshold': 0.99})
-        ]
-        
-        for name, box_color, qt_kwargs in configs:
-            print(f"\n--- Running variant: [{name}] ---")
-            qt = Quadtree(**qt_kwargs)
-            
-            print("  1/3 Extracting internal splats...")
-            splats = extract_single_splat_per_square(qt, img_bgr)
-            
-            print(f"  2/3 Rendering exactly {len(splats)} splats out...")
-            rendered_splats = render_splats_to_image(splats, img_bgr.shape)
-            
-            print("  3/3 Outlining boxes globally onto matrices...")
-            # Out 1: RGB with boxes
-            rgb_with_boxes = qt.draw(img_bgr, color=box_color, thickness=1)
-            
-            # Out 2: Rendered Splats with boxes (using identical method available in quadtree.py)
-            splats_with_boxes = qt.draw(rendered_splats, color=box_color, thickness=1)
-            
-            # Save files
-            cv2.imwrite(f"output/quadtree_rgb_{name}.png", rgb_with_boxes)
-            cv2.imwrite(f"output/rendered_splats_with_boxes_{name}.png", splats_with_boxes)
-            # You get the clean splats image without the grid as well:
-            cv2.imwrite(f"output/rendered_splats_clean_{name}.png", rendered_splats)
-            
-        print("\nAll algorithms successfully tested and natively mapped into your 'output/' folder!")
+        for min_size in min_sizes_to_test:
+            for rgb_t1, rgb_t2 in rgb_thresholds_to_test:
+                # --- Process RGB edges with current dynamically passed threshold arrays ---
+                rgb_edges_mask = cv2.Canny(color_gray, threshold1=rgb_t1, threshold2=rgb_t2)
+                
+                # Mathematical Stack of both structural edge detection variants
+                combined_edges_mask = cv2.bitwise_or(depth_edges_mask, rgb_edges_mask)
+                
+                # Output Directory specific exactly to this configured run
+                out_dir = f"results/quadtree_min_size-{min_size}_threshold_{rgb_t1}-{rgb_t2}"
+                os.makedirs(out_dir, exist_ok=True)
+                
+                print(f"\n=======================================================")
+                print(f"Testing Min Size: {min_size} | RGB Thresholds: {rgb_t1}-{rgb_t2}")
+                print(f"Directory: {out_dir}/")
+                print(f"=======================================================")
+                
+                # Dictionary to hold splats iteration counts internally
+                splats_counts = {}
+                
+                # Define 4 configuration tuples: (Name, Box Color, Quadtree args dict)
+                configs = [
+                    ("normals_only", (0, 0, 255), {'normal_map': normals_raw_vectors, 'edge_map': None, 'min_size': min_size, 'dot_threshold': 0.99}),
+                    ("depth_edges_only", (255, 0, 0), {'normal_map': None, 'edge_map': depth_edges_mask, 'min_size': min_size}),
+                    ("color_edges_only", (0, 255, 255), {'normal_map': None, 'edge_map': rgb_edges_mask, 'min_size': min_size}),
+                    ("combined_all", (0, 255, 0), {'normal_map': normals_raw_vectors, 'edge_map': combined_edges_mask, 'min_size': min_size, 'dot_threshold': 0.99})
+                ]
+                
+                for name, box_color, qt_kwargs in configs:
+                    print(f"  -> Processing algorithm limit: {name}...")
+                    qt = Quadtree(**qt_kwargs)
+                    
+                    splats = extract_single_splat_per_square(qt, img_bgr)
+                    splats_counts[name] = len(splats)
+                    
+                    rendered_splats = render_splats_to_image(splats, img_bgr.shape)
+                    
+                    rgb_with_boxes = qt.draw(img_bgr, color=box_color, thickness=1)
+                    splats_with_boxes = qt.draw(rendered_splats, color=box_color, thickness=1)
+                    
+                    # Save natively into the folder
+                    cv2.imwrite(os.path.join(out_dir, f"quadtree_rgb_{name}.png"), rgb_with_boxes)
+                    cv2.imwrite(os.path.join(out_dir, f"rendered_splats_with_boxes_{name}.png"), splats_with_boxes)
+                    cv2.imwrite(os.path.join(out_dir, f"rendered_splats_clean_{name}.png"), rendered_splats)
+                    
+                # Structurally dump the output metrics into JSON specifically for this folder index
+                json_path = os.path.join(out_dir, "splats_count.json")
+                with open(json_path, "w") as f:
+                    json.dump(splats_counts, f, indent=4)
+                    
+        print("\nAll algorithm permutations correctly tested and dumped flawlessly into their specific structured 'results/' sub-directories!")
     else:
         print("Required data files not found in 'data/' to run the test block comprehensively. We need depth, color, and normal.")
