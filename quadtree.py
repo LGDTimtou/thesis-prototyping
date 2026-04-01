@@ -162,7 +162,7 @@ def test_quadtree_workflow():
     
     # --- Execute Pre-Calculated Canny Extractor on RGB COLOR ---
     color_gray = cv2.cvtColor(color_img_bgr, cv2.COLOR_BGR2GRAY)
-    rgb_edges_mask = cv2.Canny(color_gray, threshold1=50, threshold2=150) # Tighter threshold bounds for noisy color images
+    rgb_edges_mask = cv2.Canny(color_gray, threshold1=30, threshold2=90) # Tighter threshold bounds for noisy color images
     
     # Mathematical Stack of both structural edge detection variants
     combined_edges_mask = cv2.bitwise_or(depth_edges_mask, rgb_edges_mask)
