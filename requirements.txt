@@ -2,3 +2,6 @@ numpy
 opencv-contrib-python
 requests
 h5py
+scikit-image
+torch
+lpips

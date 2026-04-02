@@ -39,8 +39,15 @@ class KdTreeNode(TreeNode):
 class KdTree(Tree):
     """Manages recursive kd-tree splitting over the same image metrics as the quadtree."""
 
-    def __init__(self, normal_map=None, edge_map=None, min_size=8, dot_threshold=0.98):
-        super().__init__(normal_map=normal_map, edge_map=edge_map, min_size=min_size, dot_threshold=dot_threshold)
+    def __init__(self, color_image, normal_image, depth_image, min_size=8, dot_threshold=0.98, **kwargs):
+        super().__init__(
+            color_image=color_image,
+            normal_image=normal_image,
+            depth_image=depth_image,
+            min_size=min_size,
+            dot_threshold=dot_threshold,
+            **kwargs,
+        )
 
         self.root = KdTreeNode(0, 0, self.w, self.h)
         self._build(self.root)
@@ -119,19 +126,51 @@ def test_kdtree_workflow():
     cv2.imwrite("output/algorithm_rgb_edges_mask.png", rgb_edges_mask)
 
     print("Generating [Normals Only] boundaries...")
-    kt_normals = KdTree(normal_map=normals_raw_vectors, edge_map=None, min_size=4, dot_threshold=0.99)
+    kt_normals = KdTree(
+        color_image=color_img_bgr,
+        normal_image=normal_bgr,
+        depth_image=depth_raw,
+        min_size=4,
+        dot_threshold=0.99,
+        rgb_threshold1=30,
+        rgb_threshold2=90,
+    )
     out_normals = kt_normals.draw(color_img_bgr, color=(0, 0, 255), thickness=1)
 
     print("Generating [Depth Edges Only] boundaries...")
-    kt_depth_edges = KdTree(normal_map=None, edge_map=depth_edges_mask, min_size=4)
+    kt_depth_edges = KdTree(
+        color_image=color_img_bgr,
+        normal_image=normal_bgr,
+        depth_image=depth_raw,
+        min_size=4,
+        dot_threshold=0.99,
+        rgb_threshold1=30,
+        rgb_threshold2=90,
+    )
     out_depth_edges = kt_depth_edges.draw(color_img_bgr, color=(255, 0, 0), thickness=1)
 
     print("Generating [Color Edges Only] boundaries...")
-    kt_rgb_edges = KdTree(normal_map=None, edge_map=rgb_edges_mask, min_size=4)
+    kt_rgb_edges = KdTree(
+        color_image=color_img_bgr,
+        normal_image=normal_bgr,
+        depth_image=depth_raw,
+        min_size=4,
+        dot_threshold=0.99,
+        rgb_threshold1=30,
+        rgb_threshold2=90,
+    )
     out_rgb_edges = kt_rgb_edges.draw(color_img_bgr, color=(0, 255, 255), thickness=1)
 
     print("Generating [All Metrics Combined] boundaries...")
-    kt_combined = KdTree(normal_map=normals_raw_vectors, edge_map=combined_edges_mask, min_size=4, dot_threshold=0.99)
+    kt_combined = KdTree(
+        color_image=color_img_bgr,
+        normal_image=normal_bgr,
+        depth_image=depth_raw,
+        min_size=4,
+        dot_threshold=0.99,
+        rgb_threshold1=30,
+        rgb_threshold2=90,
+    )
     out_combined = kt_combined.draw(color_img_bgr, color=(0, 255, 0), thickness=1)
 
     cv2.imwrite("output/kdtree_rgb_normals_only.png", out_normals)

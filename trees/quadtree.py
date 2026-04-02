@@ -35,8 +35,15 @@ class QuadtreeNode(TreeNode):
 class Quadtree(Tree):
     """Manages the recursive splitting logic evaluating underlying spatial image variables."""
 
-    def __init__(self, normal_map=None, edge_map=None, min_size=8, dot_threshold=0.98):
-        super().__init__(normal_map=normal_map, edge_map=edge_map, min_size=min_size, dot_threshold=dot_threshold)
+    def __init__(self, color_image, normal_image, depth_image, min_size=8, dot_threshold=0.98, **kwargs):
+        super().__init__(
+            color_image=color_image,
+            normal_image=normal_image,
+            depth_image=depth_image,
+            min_size=min_size,
+            dot_threshold=dot_threshold,
+            **kwargs,
+        )
 
         self.root = QuadtreeNode(0, 0, self.w, self.h)
         self._build(self.root)
@@ -125,22 +132,54 @@ def test_quadtree_workflow():
     
     # --- Option 1: Run Logic using NORMALS ONLY ---
     print("Generating [Normals Only] boundaries...")
-    qt_normals = Quadtree(normal_map=normals_raw_vectors, edge_map=None, min_size=4, dot_threshold=0.99)
+    qt_normals = Quadtree(
+        color_image=color_img_bgr,
+        normal_image=normal_bgr,
+        depth_image=depth_raw,
+        min_size=4,
+        dot_threshold=0.99,
+        rgb_threshold1=30,
+        rgb_threshold2=90,
+    )
     out_normals = qt_normals.draw(color_img_bgr, color=(0, 0, 255), thickness=1) # RED purely means Normals
     
     # --- Option 2: Run Logic using DEPTH EDGES ONLY ---
     print("Generating [Depth Edges Only] boundaries...")
-    qt_depth_edges = Quadtree(normal_map=None, edge_map=depth_edges_mask, min_size=4)
+    qt_depth_edges = Quadtree(
+        color_image=color_img_bgr,
+        normal_image=normal_bgr,
+        depth_image=depth_raw,
+        min_size=4,
+        dot_threshold=0.99,
+        rgb_threshold1=30,
+        rgb_threshold2=90,
+    )
     out_depth_edges = qt_depth_edges.draw(color_img_bgr, color=(255, 0, 0), thickness=1) # BLUE purely means Depth Drop
     
     # --- Option 3: Run Logic using RGB COLOR EDGES ONLY ---
     print("Generating [Color Edges Only] boundaries...")
-    qt_rgb_edges = Quadtree(normal_map=None, edge_map=rgb_edges_mask, min_size=4)
+    qt_rgb_edges = Quadtree(
+        color_image=color_img_bgr,
+        normal_image=normal_bgr,
+        depth_image=depth_raw,
+        min_size=4,
+        dot_threshold=0.99,
+        rgb_threshold1=30,
+        rgb_threshold2=90,
+    )
     out_rgb_edges = qt_rgb_edges.draw(color_img_bgr, color=(0, 255, 255), thickness=1) # YELLOW purely means Texture Color Boundaries
     
     # --- Option 4: Run Logic COMBINED ---
     print("Generating [All Metrics Combined] algorithm boundaries...")
-    qt_combined = Quadtree(normal_map=normals_raw_vectors, edge_map=combined_edges_mask, min_size=4, dot_threshold=0.99)
+    qt_combined = Quadtree(
+        color_image=color_img_bgr,
+        normal_image=normal_bgr,
+        depth_image=depth_raw,
+        min_size=4,
+        dot_threshold=0.99,
+        rgb_threshold1=30,
+        rgb_threshold2=90,
+    )
     out_combined = qt_combined.draw(color_img_bgr, color=(0, 255, 0), thickness=1) # GREEN explicitly stacks all 3 metrics perfectly
     
     # --- 5. Export the specific test arrays entirely mapped back onto RGB space ---

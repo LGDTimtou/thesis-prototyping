@@ -71,8 +71,15 @@ class BSPTreeNode(TreeNode):
         self.polygon = polygon 
 
 class BSPTree(Tree):
-    def __init__(self, normal_map=None, edge_map=None, min_area=32, dot_threshold=0.98, max_depth=15):
-        super().__init__(normal_map=normal_map, edge_map=edge_map, min_size=min_area, dot_threshold=dot_threshold)
+    def __init__(self, color_image, normal_image, depth_image, min_area=32, dot_threshold=0.98, max_depth=15, **kwargs):
+        super().__init__(
+            color_image=color_image,
+            normal_image=normal_image,
+            depth_image=depth_image,
+            min_size=min_area,
+            dot_threshold=dot_threshold,
+            **kwargs,
+        )
         self.min_area = min_area
         self.max_depth = max_depth
 
@@ -239,19 +246,51 @@ def test_bsp_workflow():
     os.makedirs("output", exist_ok=True)
     
     print("Generating [Normals Only] polygons...")
-    bsp_normals = BSPTree(normal_map=normals_raw_vectors, edge_map=None, min_area=32, dot_threshold=0.99)
+    bsp_normals = BSPTree(
+        color_image=color_img_bgr,
+        normal_image=normal_bgr,
+        depth_image=depth_raw,
+        min_area=32,
+        dot_threshold=0.99,
+        rgb_threshold1=30,
+        rgb_threshold2=90,
+    )
     out_normals = bsp_normals.draw(color_img_bgr, color=(0, 0, 255), thickness=1)
     
     print("Generating [Depth Edges Only] polygons...")
-    bsp_depth = BSPTree(normal_map=None, edge_map=depth_edges_mask, min_area=32)
+    bsp_depth = BSPTree(
+        color_image=color_img_bgr,
+        normal_image=normal_bgr,
+        depth_image=depth_raw,
+        min_area=32,
+        dot_threshold=0.99,
+        rgb_threshold1=30,
+        rgb_threshold2=90,
+    )
     out_depth = bsp_depth.draw(color_img_bgr, color=(255, 0, 0), thickness=1)
     
     print("Generating [Color Edges Only] polygons...")
-    bsp_rgb = BSPTree(normal_map=None, edge_map=rgb_edges_mask, min_area=32)
+    bsp_rgb = BSPTree(
+        color_image=color_img_bgr,
+        normal_image=normal_bgr,
+        depth_image=depth_raw,
+        min_area=32,
+        dot_threshold=0.99,
+        rgb_threshold1=30,
+        rgb_threshold2=90,
+    )
     out_rgb = bsp_rgb.draw(color_img_bgr, color=(0, 255, 255), thickness=1)
     
     print("Generating [All Metrics Combined] polygons...")
-    bsp_comb = BSPTree(normal_map=normals_raw_vectors, edge_map=combined_edges_mask, min_area=32, dot_threshold=0.99)
+    bsp_comb = BSPTree(
+        color_image=color_img_bgr,
+        normal_image=normal_bgr,
+        depth_image=depth_raw,
+        min_area=32,
+        dot_threshold=0.99,
+        rgb_threshold1=30,
+        rgb_threshold2=90,
+    )
     out_comb = bsp_comb.draw(color_img_bgr, color=(0, 255, 0), thickness=1)
     
     cv2.imwrite("output/bsp_rgb_normals_only.png", out_normals)
