@@ -274,6 +274,23 @@ if __name__ == "__main__":
                     cv2.imwrite(os.path.join(out_dir, f"{tree_name}_splats_with_boxes.png"), output_splats_with_boxes)
                     cv2.imwrite(os.path.join(out_dir, f"{tree_name}_splats_clean.png"), output_rendered_splats)
 
+                    depth_thickness_ratio = 0.05
+                    min_depth_thickness = 1e-4
+                    splat_opacity = 1.0
+                    ply_filename = (
+                        f"{tree_name}_3d_splats"
+                        f"_dtr-{depth_thickness_ratio:g}"
+                        f"_mdt-{min_depth_thickness:g}"
+                        f"_op-{splat_opacity:g}.ply"
+                    )
+                    ply_path = os.path.join(out_dir, ply_filename)
+                    tree.export_3d_splats_to_ply(
+                        output_ply_path=ply_path,
+                        depth_thickness_ratio=depth_thickness_ratio,
+                        min_depth_thickness=min_depth_thickness,
+                        opacity=splat_opacity,
+                    )
+
                     metrics = _compute_quality_metrics(
                         reference_bgr=img_bgr,
                         reconstructed_bgr=output_rendered_splats,
