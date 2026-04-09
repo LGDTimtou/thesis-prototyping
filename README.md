@@ -55,22 +55,19 @@ python -m splats.single_splat
 Use `--trees` to run specific tree(s):
 
 ```bash
-python -m splats.single_splat --trees upright_kdtree
-python -m splats.single_splat --trees kdtree upright_kdtree
-python -m splats.single_splat --trees kdtree,upright_kdtree,bsptree
-python -m splats.single_splat --trees quadtree_rotated
+python -m splats.single_splat --trees kdtree
+python -m splats.single_splat --trees kdtree bsptree
+python -m splats.single_splat --trees kdtree,bsptree
 ```
 
 Valid `--trees` values:
 - `quadtree`
 - `kdtree`
-- `upright_kdtree`
 - `bsptree`
-- `quadtree_rotated`
 
 ## Notes
 
 - The sweep stores results in `results/` using folders like:
   - `results/kdtree_min_size-4_threshold_30-90`
-  - `results/upright_kdtree_min_size-4_threshold_30-90`
+  - `results/bsptree_min_size-4_threshold_30-90`
 - If your environment uses a specific Python interpreter, run commands from that environment.

@@ -15,7 +15,6 @@ if ROOT_DIR not in sys.path:
 from trees.quadtree import Quadtree
 from trees.kd_tree import KdTree
 from trees.bsp_tree import BSPTree
-from trees.upright_kd_tree import UprightKdTree
 from trees.tree import Tree
 
 
@@ -23,7 +22,6 @@ VALID_TREE_NAMES = {
     "quadtree",
     "kdtree",
     "bsptree",
-    "upright_kdtree",
 }
 
 
@@ -141,7 +139,7 @@ if __name__ == "__main__":
         default=None,
         help=(
             "Tree(s) to run. Supports space or comma separated names. "
-            "Valid: quadtree, kdtree, bsptree, upright_kdtree"
+            "Valid: quadtree, kdtree, bsptree"
         ),
     )
     args = parser.parse_args()
@@ -204,19 +202,6 @@ if __name__ == "__main__":
                 },
             ),
             (
-                "upright_kdtree",
-                UprightKdTree,
-                lambda min_size, dot_threshold, rgb_t1, rgb_t2: {
-                    'color_image': img_bgr,
-                    'normal_image': normal_bgr,
-                    'depth_image': depth_raw,
-                    'rgb_threshold1': rgb_t1,
-                    'rgb_threshold2': rgb_t2,
-                    'min_size': min_size,
-                    'dot_threshold': dot_threshold,
-                },
-            ),
-            (
                 "bsptree",
                 BSPTree,
                 lambda min_size, dot_threshold, rgb_t1, rgb_t2: {
@@ -235,6 +220,13 @@ if __name__ == "__main__":
         tree_experiments = [
             experiment for experiment in tree_experiments if experiment[0] in selected_trees
         ]
+
+        detector_modes = [
+            ("normal_variance", True, False, False),
+            ("depth_edges", False, False, True),
+            ("rgb_edges", False, True, False),
+            ("combined", True, True, True),
+        ]
         
         for min_size in min_sizes_to_test:
             for rgb_t1, rgb_t2 in rgb_thresholds_to_test:
@@ -248,58 +240,65 @@ if __name__ == "__main__":
 
                     print(f"  -> Tree: {tree_name}")
 
-                    combined_edge_path = os.path.join(
-                        out_dir,
-                        f"{tree_name}_combined_rgb_depth_edges.png",
-                    )
-                
-                    box_color = (0, 255, 0)
-                    tree = tree_cls(**kwargs_builder(min_size, 0.99, rgb_t1, rgb_t2))
+                    for mode_name, use_normal_variance, use_rgb_edges, use_depth_edges in detector_modes:
+                        mode_out_dir = os.path.join(out_dir, mode_name)
+                        os.makedirs(mode_out_dir, exist_ok=True)
 
-                    rendered_splats, splat_count = tree.render_splats_to_image()
-                    rgb_with_boxes = tree.draw(tree.color_image, color=box_color, thickness=1)
-                    splats_with_boxes = tree.draw(rendered_splats, color=box_color, thickness=1)
+                        print(f"     - Detector mode: {mode_name}")
 
-                    if tree_name == "upright_kdtree":
-                        rgb_with_boxes = tree.rotate_back_and_refill(rgb_with_boxes)
-                        splats_with_boxes = tree.rotate_back_and_refill(splats_with_boxes)
-                        rendered_splats = tree.rotate_back_and_refill(rendered_splats)
+                        edge_map_path = os.path.join(
+                            mode_out_dir,
+                            f"{tree_name}_{mode_name}_edges.png",
+                        )
 
-                    output_rgb_with_boxes = rgb_with_boxes
-                    output_splats_with_boxes = splats_with_boxes
-                    output_rendered_splats = rendered_splats
+                        box_color = (0, 255, 0)
+                        tree_kwargs = kwargs_builder(min_size, 0.99, rgb_t1, rgb_t2)
+                        tree_kwargs.update({
+                            "use_normal_variance": use_normal_variance,
+                            "use_rgb_edges": use_rgb_edges,
+                            "use_depth_edges": use_depth_edges,
+                        })
+                        tree = tree_cls(**tree_kwargs)
 
-                    cv2.imwrite(combined_edge_path, tree.combined_edges_map)
-                    cv2.imwrite(os.path.join(out_dir, f"{tree_name}_rgb.png"), output_rgb_with_boxes)
-                    cv2.imwrite(os.path.join(out_dir, f"{tree_name}_splats_with_boxes.png"), output_splats_with_boxes)
-                    cv2.imwrite(os.path.join(out_dir, f"{tree_name}_splats_clean.png"), output_rendered_splats)
+                        rendered_splats, splat_count = tree.render_splats_to_image()
+                        rgb_with_boxes = tree.draw(tree.color_image, color=box_color, thickness=1)
+                        splats_with_boxes = tree.draw(rendered_splats, color=box_color, thickness=1)
 
-                    depth_thickness_ratio = 0.05
-                    min_depth_thickness = 1e-4
-                    splat_opacity = 1.0
-                    ply_filename = (
-                        f"{tree_name}_3d_splats"
-                        f"_dtr-{depth_thickness_ratio:g}"
-                        f"_mdt-{min_depth_thickness:g}"
-                        f"_op-{splat_opacity:g}.ply"
-                    )
-                    ply_path = os.path.join(out_dir, ply_filename)
-                    tree.export_3d_splats_to_ply(
-                        output_ply_path=ply_path,
-                        depth_thickness_ratio=depth_thickness_ratio,
-                        min_depth_thickness=min_depth_thickness,
-                        opacity=splat_opacity,
-                    )
+                        output_rgb_with_boxes = rgb_with_boxes
+                        output_splats_with_boxes = splats_with_boxes
+                        output_rendered_splats = rendered_splats
 
-                    metrics = _compute_quality_metrics(
-                        reference_bgr=img_bgr,
-                        reconstructed_bgr=output_rendered_splats,
-                        splat_count=splat_count,
-                    )
+                        cv2.imwrite(edge_map_path, tree.combined_edges_map)
+                        cv2.imwrite(os.path.join(mode_out_dir, f"{tree_name}_rgb.png"), output_rgb_with_boxes)
+                        cv2.imwrite(os.path.join(mode_out_dir, f"{tree_name}_splats_with_boxes.png"), output_splats_with_boxes)
+                        cv2.imwrite(os.path.join(mode_out_dir, f"{tree_name}_splats_clean.png"), output_rendered_splats)
 
-                    json_path = os.path.join(out_dir, "single_splat_quality_metrics.json")
-                    with open(json_path, "w") as f:
-                        json.dump(metrics, f, indent=4)
+                        depth_thickness_ratio = 0.05
+                        min_depth_thickness = 1e-4
+                        splat_opacity = 1.0
+                        ply_filename = (
+                            f"{tree_name}_{mode_name}_3d_splats"
+                            f"_dtr-{depth_thickness_ratio:g}"
+                            f"_mdt-{min_depth_thickness:g}"
+                            f"_op-{splat_opacity:g}.ply"
+                        )
+                        ply_path = os.path.join(mode_out_dir, ply_filename)
+                        tree.export_3d_splats_to_ply(
+                            output_ply_path=ply_path,
+                            depth_thickness_ratio=depth_thickness_ratio,
+                            min_depth_thickness=min_depth_thickness,
+                            opacity=splat_opacity,
+                        )
+
+                        metrics = _compute_quality_metrics(
+                            reference_bgr=img_bgr,
+                            reconstructed_bgr=output_rendered_splats,
+                            splat_count=splat_count,
+                        )
+
+                        json_path = os.path.join(mode_out_dir, "single_splat_quality_metrics.json")
+                        with open(json_path, "w") as f:
+                            json.dump(metrics, f, indent=4)
 
         print("\nAll tree permutations correctly tested and dumped flawlessly into their specific structured 'results/' sub-directories!")
     else:

@@ -6,3 +6,4 @@ scikit-image
 torch
 lpips
 plyfile
+lu_vp_detect

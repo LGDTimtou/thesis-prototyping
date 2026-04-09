@@ -51,6 +51,9 @@ class Tree:
         rgb_threshold2=90,
         depth_threshold1=15,
         depth_threshold2=50,
+        use_normal_variance=True,
+        use_rgb_edges=True,
+        use_depth_edges=True,
     ):
 
         if color_image is None or normal_image is None or depth_image is None:
@@ -60,6 +63,9 @@ class Tree:
         
         self.color_image = color_image
         self.depth_image = depth_image
+        self.use_normal_variance = bool(use_normal_variance)
+        self.use_rgb_edges = bool(use_rgb_edges)
+        self.use_depth_edges = bool(use_depth_edges)
 
         maps = self.build_feature_maps(
             color_image=color_image,
@@ -72,10 +78,24 @@ class Tree:
         )
 
         self.normal_map = maps["normal_map"]
-        self.edge_map = maps["combined_edges_map"]
         self.rgb_edges_map = maps["rgb_edges_map"]
         self.depth_edges_map = maps["depth_edges_map"]
-        self.combined_edges_map = maps["combined_edges_map"]
+
+        selected_edge_maps = []
+        if self.use_rgb_edges:
+            selected_edge_maps.append(self.rgb_edges_map)
+        if self.use_depth_edges:
+            selected_edge_maps.append(self.depth_edges_map)
+
+        if selected_edge_maps:
+            edge_map = selected_edge_maps[0].copy()
+            for extra_map in selected_edge_maps[1:]:
+                edge_map = cv2.bitwise_or(edge_map, extra_map)
+        else:
+            edge_map = np.zeros_like(self.rgb_edges_map)
+
+        self.edge_map = edge_map
+        self.combined_edges_map = edge_map
         self.min_size = min_size
         self.dot_threshold = dot_threshold
 
@@ -230,7 +250,7 @@ class Tree:
         }
 
     def _should_split(self, x, y, w, h):
-        if self.normal_map is not None:
+        if self.use_normal_variance and self.normal_map is not None:
             patch_normals = self.normal_map[y:y + h, x:x + w]
 
             if patch_normals.size > 0:
@@ -244,7 +264,7 @@ class Tree:
                 if np.mean(dots) < self.dot_threshold:
                     return True
 
-        if self.edge_map is not None:
+        if (self.use_rgb_edges or self.use_depth_edges) and self.edge_map is not None:
             patch_edges = self.edge_map[y:y + h, x:x + w]
             if np.any(patch_edges > 0):
                 return True
